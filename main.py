@@ -1,7 +1,6 @@
 import machine
 import network
-from network import STA_IF
-import secret
+import envs
 from microdot import Microdot
 import socket
 import time
@@ -9,16 +8,13 @@ import time
 led = machine.Pin("LED", machine.Pin.OUT)
 led.off()
 
-server = ('192.168.0.59', 38899)
-# server = ('192.168.0.210', 2115)
-turn_on = b'{"method":"setPilot","params":{"r":238,"b":2,"g":210,"dimming":10}}'
-turn_off = b'{"method":"setPilot","params":{"state":false}}'
+server = (envs.device_address, envs.device_port)
 
 
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    wlan.connect(secret.wifi['ssid'], secret.wifi['password'])
+    wlan.connect(envs.wifi_ssid, envs.wifi_password)
     while not wlan.isconnected():
         print('Waiting for connection...')
         time.sleep(1)
@@ -26,25 +22,56 @@ def connect_wifi():
 
 
 class Conn:
-    def __init__(self, server):
-        self.server = server
+    def __init__(self, _server):
+        self.server = _server
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def send(self, data):
         self.sock.sendto(data, self.server)
 
 
+def blink():
+    led.on()
+    led.off()
+
+
 connect_wifi()
-led.on()
 
 app = Microdot()
 c = Conn(server)
+
+
+def authenticate_user(request):
+    value = request.headers.get("Authorization")
+    if not value:
+        return None
+    if not value.lower().startswith('basic'):
+        return None
+    auth = value[6:]
+    if not auth == envs.auth:
+        return None
+    return True
+
+
+@app.before_request
+def authorize(request):
+    led.on()
+    authorized = authenticate_user(request)
+    if not authorized:
+        return 'Unauthorized', 401
+    request.g.authorized = authorized
+
+
+@app.after_request
+def after(req, res):
+    led.off()
+
 
 @app.route('/')
 def index(request):
     print(request.body)
     c.send(request.body)
-    return 'Hello, world!'
+    return '¡Éxito! :)'
 
 
 app.run(port=80)
